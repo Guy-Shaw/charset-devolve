@@ -1,0 +1,105 @@
+#! /usr/bin/perl
+
+=pod
+
+=begin description
+
+Run Known Answer Tests (KAT)
+
+Test data is of the form:
+rune => devolved
+
+where rune is a perl string with possible escape sequences.
+The string is evaluated as if it were a perl statement $var = qq{rune},
+so escape sequence get evaluated.  The 'devolved' string is the expected
+result of running u2a (utf8-to-ascii) on that string.
+
+=end description
+
+=cut
+
+require 5.0;
+use strict;
+use warnings;
+use Carp;
+use diagnostics;
+use Getopt::Long;
+use File::Spec::Functions;
+use Cwd qw(getcwd);             # Needed at least for explain_cwd()
+
+my $eprint_fh = *STDERR;
+my $dprint_fh = *STDERR;
+
+my $debug   = 0;
+my $verbose = 0;
+
+my @options = (
+    'debug'   => \$debug,
+    'verbose' => \$verbose,
+);
+
+#:subroutines:#
+
+# Decide how to direct eprint*() and dprint*() functions.
+# If STDOUT and STDERR are directed to the same "channel",
+# then eprint*() and dprint*() should be tied to the same file handle.
+#
+# Otherwise, buffering could cause a mix of STDOUT and STDERR to
+# be written out of order.
+#
+sub set_print_fh {
+    my @stdout_statv;
+    my @stderr_statv;
+    my $stdout_chan;
+    my $stderr_chan;
+
+    @stdout_statv = stat(*STDOUT);
+    @stderr_statv = stat(*STDERR);
+    $stdout_chan = join(':', @stdout_statv[0, 1, 6]);
+    $stderr_chan = join(':', @stderr_statv[0, 1, 6]);
+    if (!defined($eprint_fh)) {
+        $eprint_fh = ($stderr_chan eq $stdout_chan) ? *STDOUT : *STDERR;
+    }
+    if (!defined($dprint_fh)) {
+        $dprint_fh = ($stderr_chan eq $stdout_chan) ? *STDOUT : *STDERR;
+    }
+}
+
+sub eprint {
+    print {$eprint_fh} @_;
+}
+
+sub eprintf {
+    printf {$eprint_fh} @_;
+}
+
+sub dprint {
+    print {$dprint_fh} @_ if ($debug);
+}
+
+sub dprintf {
+    printf {$dprint_fh} @_ if ($debug);
+}
+
+#:options:#
+
+GetOptions(@options) or exit 2;
+
+#:main:#
+
+set_print_fh();
+
+while (<>) {
+    chomp;
+    s{\r\z}{}msx;
+    my @fld = split(/\s+=>\s+/, $_);
+    if (@fld != 2) {
+        print '**ERROR**', "\n";
+        next;
+    }
+    my ($rune, $devolved) = @fld;
+    my $xstr = eval "qq{$rune}";
+    print $xstr, ':=:', $devolved, "\n";
+}
+
+exit 0;

@@ -1,0 +1,214 @@
+#! /usr/bin/perl -w
+    eval 'exec /usr/bin/perl -S $0 ${1+"$@"}'
+        if 0; #$running_under_some_shell
+
+# Filename: src/gen-tables/latin1/build-table
+# Brief: Generate C source code for table lookup for Latin1 character set
+#
+# Copyright (C) 2016 Guy Shaw
+# Written by Guy Shaw <gshaw@acm.org>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU Lesser General Public License as
+# published by the Free Software Foundation; either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+=pod
+
+=begin description
+
+Convert table.txt to C source code declaration of the translate table.
+
+See https://en.wikipedia.org/wiki/ISO/IEC_8859-1
+
+=end description
+
+=cut
+
+require 5.0;
+use strict;
+use warnings;
+use Carp;
+use diagnostics;
+use Getopt::Long;
+use File::Spec::Functions;
+use Cwd qw(getcwd);             # Needed at least for explain_cwd()
+
+my $eprint_fh;
+my $dprint_fh;
+
+my $debug   = 0;
+my $verbose = 0;
+my $indent  = '    ';
+
+my @options = (
+    'debug'   => \$debug,
+    'verbose' => \$verbose,
+);
+
+#:subroutines:#
+
+# Decide how to direct eprint*() and dprint*() functions.
+# If STDOUT and STDERR are directed to the same "channel",
+# then eprint*() and dprint*() should be tied to the same file handle.
+#
+# Otherwise, buffering could cause a mix of STDOUT and STDERR to
+# be written out of order.
+#
+sub set_print_fh {
+    my @stdout_statv;
+    my @stderr_statv;
+    my $stdout_chan;
+    my $stderr_chan;
+
+    @stdout_statv = stat(*STDOUT);
+    @stderr_statv = stat(*STDERR);
+    $stdout_chan = join(':', @stdout_statv[0, 1, 6]);
+    $stderr_chan = join(':', @stderr_statv[0, 1, 6]);
+    if (!defined($eprint_fh)) {
+        $eprint_fh = ($stderr_chan eq $stdout_chan) ? *STDOUT : *STDERR;
+    }
+    if (!defined($dprint_fh)) {
+        $dprint_fh = ($stderr_chan eq $stdout_chan) ? *STDOUT : *STDERR;
+    }
+}
+
+sub eprint {
+    if (-t $eprint_fh) {
+        print {$eprint_fh} "\e[01;31m\e[K", @_, "\e[m\e[K";
+    }
+    else {
+        print {$eprint_fh} @_;
+    }
+}
+
+sub eprintf {
+    if (-t $eprint_fh) {
+        print  {$eprint_fh}  "\e[01;31m\e[K";
+        printf {$eprint_fh} @_;
+        print  {$eprint_fh}  "\e[m\e[K";
+    }
+    else {
+        printf {$eprint_fh} @_;
+    }
+}
+
+sub dprint {
+    print {$dprint_fh} @_ if ($debug);
+}
+
+sub dprintf {
+    printf {$dprint_fh} @_ if ($debug);
+}
+
+#:options:#
+
+set_print_fh();
+
+GetOptions(@options) or exit 2;
+
+#:main:#
+
+my @table = ();
+
+my $table_base = 0xa0;
+my $table_end  = 0xff;
+my $err;
+
+$err = 0;
+while (<>) {
+    my @fld;
+    my ($code_point, $ascii);
+
+    chomp;
+    s{\r\z}{}msx;
+    s{\s+\z}{}msx;
+    s{\A\s*\#.*}{}msx;
+    next if ($_ eq '');
+    next if (m{\A[A-Fa-f0-9]+\z}msx && length($_) == 2);
+    last if ($_ eq '__END__');
+    s{\s}{\000}msx;
+
+    @fld = split(/\000/, $_);
+    ($code_point, $ascii) = @fld;
+    next if ($ascii eq '?');
+
+    my $chr = hex($code_point);
+    if ($chr < $table_base) {
+        eprintf "Character '%0x02x' < base of translate table.\n", $chr;
+        $err = 1;
+        next;
+    }
+    if ($chr > $table_end) {
+        eprintf "Character '%0x02x' > end of translate table.\n", $chr;
+        $err = 1;
+        next;
+    }
+    my $idx = $chr - $table_base;
+    $table[$idx] = $ascii;
+}
+
+# ==============================================================================
+
+print <<'__END_PREAMBLE__';
+/*
+ * Translate table for Latin1 characters in the range 0xa0 .. 0xff.
+ *
+ * Most translations are to a single character.  The primary translation
+ * table handles those directly.  Any entry in the range 0x00..0x7f
+ * is the translation itself, but entries with the top bit set are
+ * interpreted as an index into an "overflow" table for translations
+ * to strings 2 characters or longer.  For example, the Latin1 Copyright
+ * symbol devolves to the 3 character string, "(C)".
+ *
+ */
+
+__END_PREAMBLE__
+
+print 'char latin1_table[] = {', "\n";
+
+my @zstrings = ();
+my $zsidx = 0;
+for (my $chr = $table_base; $chr <= $table_end; ++$chr) {
+    my $idx = $chr - $table_base;
+    my $ent = $table[$idx] || '0';
+    if ($ent =~ m{\A"([^"]+)"\z}msx) {
+        my $str = $1;
+        if ($str eq "'") {
+            $ent = "'\\''";
+        }
+        elsif (length($str) == 1) {
+            $ent = "'${str}'";
+        }
+        else {
+            push(@zstrings, $ent);
+            $ent = sprintf('0x%02x', 0x80 + $zsidx);
+            ++$zsidx;
+        }
+    }
+    print $indent, $ent, ',', '  // ', sprintf('0x%x', $chr), "\n";
+}
+
+print "};\n";
+
+# ==============================================================================
+
+print "\n";
+
+print "char *zstr_table[] = {\n";
+
+for my $zs (@zstrings) {
+    print $indent, $zs, ',', "\n";
+}
+
+print "};\n";
+
+exit 0;

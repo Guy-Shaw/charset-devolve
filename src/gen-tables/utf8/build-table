@@ -1,0 +1,217 @@
+#! /usr/bin/perl -w
+    eval 'exec /usr/bin/perl -S $0 ${1+"$@"}'
+        if 0; #$running_under_some_shell
+
+# Filename: src/gen-tables/utf8/build-table
+# Brief: Build the C source code for the UTF8 devolve table
+#
+# Copyright (C) 2016 Guy Shaw
+# Written by Guy Shaw <gshaw@acm.org>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU Lesser General Public License as
+# published by the Free Software Foundation; either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+
+=pod
+
+=begin description
+
+Convert Dumbdown.txt to C source code declaration of the translate table.
+
+Dumbdown.txt is an edited version of the file UnicodeData.txt that
+comes with the editor, 'vim'.
+
+=end description
+
+=cut
+
+require 5.0;
+use strict;
+use warnings;
+use Carp;
+use diagnostics;
+use Getopt::Long;
+use File::Spec::Functions;
+use Cwd qw(getcwd);             # Needed at least for explain_cwd()
+
+my $eprint_fh;
+my $dprint_fh;
+
+my $debug   = 0;
+my $verbose = 0;
+my $indent = '    ';
+
+my @options = (
+    'debug'   => \$debug,
+    'verbose' => \$verbose,
+);
+
+#:subroutines:#
+
+# Decide how to direct eprint*() and dprint*() functions.
+# If STDOUT and STDERR are directed to the same "channel",
+# then eprint*() and dprint*() should be tied to the same file handle.
+#
+# Otherwise, buffering could cause a mix of STDOUT and STDERR to
+# be written out of order.
+#
+sub set_print_fh {
+    my @stdout_statv;
+    my @stderr_statv;
+    my $stdout_chan;
+    my $stderr_chan;
+
+    @stdout_statv = stat(*STDOUT);
+    @stderr_statv = stat(*STDERR);
+    $stdout_chan = join(':', @stdout_statv[0, 1, 6]);
+    $stderr_chan = join(':', @stderr_statv[0, 1, 6]);
+    if (!defined($eprint_fh)) {
+        $eprint_fh = ($stderr_chan eq $stdout_chan) ? *STDOUT : *STDERR;
+    }
+    if (!defined($dprint_fh)) {
+        $dprint_fh = ($stderr_chan eq $stdout_chan) ? *STDOUT : *STDERR;
+    }
+}
+
+sub eprint {
+    if (-t $eprint_fh) {
+        print {$eprint_fh} "\e[01;31m\e[K", @_, "\e[m\e[K";
+    }
+    else {
+        print {$eprint_fh} @_;
+    }
+}
+
+sub eprintf {
+    if (-t $eprint_fh) {
+        print  {$eprint_fh}  "\e[01;31m\e[K";
+        printf {$eprint_fh} @_;
+        print  {$eprint_fh}  "\e[m\e[K";
+    }
+    else {
+        printf {$eprint_fh} @_;
+    }
+}
+
+sub dprint {
+    print {$dprint_fh} @_ if ($debug);
+}
+
+sub dprintf {
+    printf {$dprint_fh} @_ if ($debug);
+}
+
+#:options:#
+
+set_print_fh();
+
+GetOptions(@options) or exit 2;
+
+#:main:#
+
+my $max_gap = 16;
+my $lbound = -1;
+my $ubound = -1;
+my @table = ();
+
+while (<>) {
+    my @fld;
+    my ($code_point, $ascii);
+
+    chomp;
+    s{\r\z}{}msx;
+    s{\s+\z}{}msx;
+    s{\A\s*\#.*}{}msx;
+    next if ($_ eq '');
+    last if ($_ eq '__END__');
+
+    @fld = split(/;/, $_);
+    ($code_point, $ascii) = @fld;
+    next if ($ascii eq '?');
+
+    my $idx = hex($code_point);
+    $table[$idx] = $ascii;
+    if ($lbound < 0 || $idx < $lbound) {
+        $lbound = $idx;
+    }
+    if ($ubound < 0 || $idx > $ubound) {
+        $ubound = $idx;
+    }
+}
+
+my @tr_segments = ();
+my @hd_segments = ();
+
+print '#include <rune-table.h>', "\n";
+print "\n";
+
+dprintf "lbound=0x%x, ubound=0x%x\n", $lbound, $ubound;
+
+for (my $sx = $lbound & ~127; $sx <= $ubound; $sx += 128) {
+    my $slbound = -1;
+    my $subound = -1;
+    my $cnt = 128;
+    for (my $idx = $sx; $cnt != 0; ++$idx, --$cnt) {
+        my $ent = $table[$idx];
+        if (defined($ent)) {
+            if ($slbound < 0 || $idx < $slbound) {
+                $slbound = $idx;
+            }
+            if ($subound < 0 || $idx > $subound) {
+                $subound = $idx;
+            }
+        }
+    }
+
+    next if ($slbound < 0 && $subound < 0);
+
+    my $sid = sprintf('tr%04x', $slbound & ~127);
+    push(@tr_segments, "static char *${sid}[] = {");
+    for (my $idx = $slbound; $idx <= $subound; ++$idx) {
+        my $ent = $table[$idx];
+        if (defined($ent)) {
+            my $qent = $ent; $qent =~ s{([\\"])}{\\$1}g;
+            push(@tr_segments, $indent . qq{"${qent}",});
+        }
+        else {
+            push(@tr_segments, $indent . 'NULL,');
+        }
+    }
+
+    push(@tr_segments, '};');
+    push(@tr_segments, '');
+
+    my $sz = $subound + 1 - $slbound;
+    push(@hd_segments, sprintf('{ 0x%04x, %3u, %s },', $slbound, $sz, $sid));
+}
+
+my $ent;
+
+for $ent (@tr_segments) {
+    print $ent, "\n";
+}
+
+print "\n";
+
+print 'static segment_t rune_segments[] = {', "\n";
+for $ent (@hd_segments) {
+    print '    ', $ent, "\n";
+}
+print '};', "\n";
+
+print "\n";
+print  'rune_table_t rune_table = ';
+printf '{ &rune_segments[0], %u };', scalar(@hd_segments);
+print "\n";
+
+exit 0;
