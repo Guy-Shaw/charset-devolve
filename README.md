@@ -1,4 +1,4 @@
-# charset-devolve -- Devolve richer character sets to 7-bit ASCII
+# Devolve richer character sets to 7-bit ASCII
 
 ## 
 
@@ -8,9 +8,11 @@ as a single 7-bit ASCII character, but _are_ representable as a
 short sequence of ASCII characters.
 
 For example, the Copyright symbol can be represented,
-in 7-bit ASCII without too much loss, as the 3-character sequence, "(C)".
+in 7-bit ASCII without too much loss, as the 3-character sequence,
 
-The program, `charset-devolve` handles the most common cases
+   "(C)".
+
+The program, `charset-devolve`, handles the most common cases
 of characters used in these richer character sets.
 
 
@@ -49,7 +51,7 @@ I deal with text files that are composed by cut-and-paste,
 from various sources, with various encodings.  None of these
 sources involve any serious use of richer character sets.
 They are almost all English language.  Many UTF-8 encoded
-document I encounter just have an occasional M-dash, or "real"
+documents I encounter just have an occasional M-dash, or "real"
 left and right quote marks, an apostrophe -- that's it.
 No foreign language, except maybe an occasional borrowed
 word, like "facade" with a real cedilla.
