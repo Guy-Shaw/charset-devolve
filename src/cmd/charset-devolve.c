@@ -81,8 +81,10 @@ const char *program_name;
 size_t filec;               // Count of elements in filev
 char **filev;               // Non-option elements of argv
 
-bool verbose = false;
-bool debug   = false;
+bool debug       = false;
+bool verbose     = false;
+bool show_counts = false;
+bool show_8bit   = false;
 
 static enum cset charset = CHARSET_UTF8;
 
@@ -94,19 +96,28 @@ static struct option long_options[] = {
     {"version",        no_argument,       0,  'V'},
     {"verbose",        no_argument,       0,  'v'},
     {"debug",          no_argument,       0,  'd'},
+    {"show-counts",    no_argument,       0,  'c'},
+    {"counts",         no_argument,       0,  'c'},
+    {"count-8bit",     no_argument,       0,  '8'},
     {"charset",        required_argument, 0,  'C'},
     {0, 0, 0, 0}
 };
 
 static const char usage_text[] =
     "Options:\n"
-    "  --help|-h|-?         Show this help message and exit\n"
-    "  --version            Show version information and exit\n"
-    "  --verbose|-v         verbose\n"
-    "  --debug|-d           debug\n"
-    "  --charset <charset>  Use a character encoding other than UTF-8\n"
+    "  --help|-h|-?    Show this help message and exit\n"
+    "  --version       Show version information and exit\n"
+    "  --debug|-d      debug\n"
+    "  --verbose|-v    verbose\n"
+    "  --show-counts   After each file, show counts of devolved characters\n"
+    "  --counts\n"
+    "  --count-8bit    Show counts, but only if there are any non-ascii\n"
+    "  --charset <charset>\n"
+    "                  Specify a the source character set (encoding)\n"
+    "                  Character sets are: UTF-8 latin1\n"
+    "                  Default is UTF-8\n"
     "\n"
-    "Only latin1 is directly support, for now.\n"
+    "Only UTF-8 and latin1 are directly supported, for now.\n"
     "Other character sets could be handled by using recode\n"
     "to convert to UTF-8 or latin1, then running charset-devolve.\n"
     ;
@@ -149,6 +160,62 @@ usage(void)
 {
     eprintf("usage: %s [ <options> ]\n", program_name);
     eprint(usage_text);
+}
+
+enum variant {
+    VARIANT_WORDS,
+    VARIANT_ACRONYM,
+};
+
+static int
+variant_strcmp(const char *var_str, const char *ref_str, int flags)
+{
+    const char *vp;
+    const char *rp;
+    const char *vw;
+    const char *rw;
+
+    (void)flags;
+    vp = var_str;
+    rp = ref_str;
+    while (true) {
+        size_t vlen;
+        size_t rlen;
+        size_t cmplen;
+        int cmp;
+
+        vw = vp;
+        while (*vp && isalnum(*vp) && !(vp > vw && islower(vp[-1]) && isupper(*vp))) {
+            ++vp;
+        }
+        vlen = vp - vw;
+        rw = rp;
+        while (*rp && isalnum(*rp) && !(rp > rw && islower(rp[-1]) && isupper(*rp))) {
+            ++rp;
+        }
+        rlen = rp - rw;
+
+        cmplen = vlen <= rlen ? vlen : rlen;
+        cmp = strncasecmp(vw, rw, cmplen);
+        if (cmp != 0) {
+            return (cmp);
+        }
+        if (vlen < rlen) {
+            return (- *rp);
+        }
+        else if (vlen > rlen) {
+            return (*vp);
+        }
+        while (*vp && !isalnum(*vp)) {
+            ++vp;
+        }
+        while (*rp && !isalnum(*rp)) {
+            ++rp;
+        }
+        if (*vp == 0 && *rp == 0) {
+            return (0);
+        }
+    }
 }
 
 static inline bool
@@ -198,48 +265,146 @@ getRune(FILE *f)
 static void
 fputRune(Rune r, FILE *f)
 {
-    char char_buf[UTFmax + 1];
-    size_t sz;
-    size_t i;
+    if (r == Runeerror) {
+        fputs("*BAD*", f);
+        return;
+    }
 
     fputc('*', f);
-    fprintf(f, "U+%04x", r);
-    fputc('=', f);
-    sz = runetochar(char_buf, &r);
-    for (i = 0; i < sz; ++i) {
-        fprintf(f, "\\x%02x", char_buf[i] & 0xff);
+    if ((r >= 0x80 && r <= 0xC1) || (r >= 0xF5 && r <= 0xFF) ) {
+        // This is not valid for the first byte of a UTF-8 rune
+        fprintf(f, "%02x", r);
+    }
+    else {
+        // The first byte is valid, but for some reason the entire
+        // UTF-8 is either invalid OR it is merely not in the
+        // Devolve-Unicode-to-ASCII table.
+
+        char char_buf[UTFmax + 1];
+        size_t sz;
+        size_t i;
+
+        fprintf(f, "U+%04x", r);
+        fputc('=', f);
+        sz = runetochar(char_buf, &r);
+        for (i = 0; i < sz; ++i) {
+            fprintf(f, "\\x%02x", char_buf[i] & 0xff);
+        }
     }
     fputc('*', f);
 }
 
+/*
+ * The input stream is read one byte at a time.
+ * Bytes that are the start of a UTF-8 multi-byte code-point
+ * get read by GetRune() which advances as many bytes as are
+ * needed to read in a full rune.
+ *
+ * We could just read full runes at a time, without first probing
+ * (and consuming) the first byte.  That would work.  But, in case
+ * of any first byte that is invalid, we want to report that as a
+ * separate kind of error, and we want to recover by advancing only
+ * one byte.  But getRune() can advance more than one byte, and then
+ * report an error.
+ *
+ * Besides, we assume that ASCII characters (0 .. 0x7F) is the common
+ * case.
+ *
+ */
+
 static int
 devolve_stream_utf8(fvh_t *fvp, FILE *dstf)
 {
+    size_t cnt_8bit;
+    size_t cnt_runes;
+    size_t cnt_inval;
+    size_t cnt_lines;
+    size_t cnt_lines_with_8bit;
+    size_t cnt_lines_with_runes;
+    size_t cnt_lines_with_inval;
+    size_t cnt_runes_this_line;
+    size_t cnt_inval_this_line;
+
     FILE *srcf;
-    Rune r;
+    int c;
+
+    cnt_runes = 0;
+    cnt_inval = 0;
+    cnt_lines = 0;
+    cnt_lines_with_8bit = 0;
+    cnt_lines_with_runes = 0;
+    cnt_lines_with_inval = 0;
+    cnt_runes_this_line = 0;
+    cnt_inval_this_line = 0;
 
     srcf = fvp->fh;
     fvp->flnr = 0;
-    while ((r = getRune(srcf)) != (Rune) EOF) {
-        char *ascii;
-
-        if (r <= 0x7F) {
-            if (r == '\n') {
+    while ((c = getc(srcf)) != EOF) {
+        if (c <= 0x7F) {
+            if (c == '\n') {
+                ++cnt_lines;
+                cnt_runes += cnt_runes_this_line;
+                cnt_inval += cnt_inval_this_line;
+                if (cnt_runes_this_line != 0) {
+                    ++cnt_lines_with_runes;
+                }
+                if (cnt_inval_this_line!= 0) {
+                    ++cnt_lines_with_inval;
+                }
+                if (cnt_runes_this_line != 0 || cnt_inval_this_line != 0) {
+                    ++cnt_lines_with_8bit;
+                }
+                cnt_runes_this_line = 0;
+                cnt_inval_this_line = 0;
                 ++fvp->flnr;
             }
-            fputc(r, dstf);
+            fputc(c, dstf);
             continue;
         }
-        ascii = rune_lookup(r);
-        if (ascii != NULL) {
-            fputs(ascii, dstf);
+        else if (c <= 0xC0) {
+            Rune r;
+            r = (Rune)c;
+            fputRune(r, dstf);
+            ++cnt_inval_this_line;
         }
         else {
-            fputRune(r, dstf);
+            char *ascii;
+            Rune r;
+
+            ungetc(c, srcf);
+            r = getRune(srcf);
+            ascii = rune_lookup(r);
+            if (ascii != NULL) {
+                fputs(ascii, dstf);
+                ++cnt_runes_this_line;
+            }
+            else {
+                fputRune(r, dstf);
+                ++cnt_inval_this_line;
+            }
         }
     }
 
-    return (0);
+    cnt_8bit = cnt_runes + cnt_inval;
+    if (show_counts || (show_8bit && cnt_8bit != 0)) {
+        fprintf(stderr, "File: '%s':\n", fvp->fname);
+        fprintf(stderr, "%9zu lines in file.\n",
+            cnt_lines);
+        fprintf(stderr, "%9zu non-ascii bytes (>= 0x80) in entire file.\n",
+            cnt_8bit);
+        fprintf(stderr, "%9zu UTF-8 runes in entire file.\n",
+            cnt_runes);
+        fprintf(stderr, "%9zu Invalid runes in entire file.\n",
+            cnt_inval);
+        fprintf(stderr, "%9zu lines containing any non-ascii bytes.\n",
+            cnt_lines_with_8bit);
+        fprintf(stderr, "%9zu lines containing any UTF-8 runes.\n",
+            cnt_lines_with_runes);
+        fprintf(stderr, "%9zu lines containing any invalid runes.\n",
+            cnt_lines_with_inval);
+    }
+
+    return ((cnt_inval == 0) ? 0 : 1);
 }
 
 static void
@@ -278,28 +443,59 @@ latin1_devolve_chr(int c)
 static int
 devolve_stream_latin1(fvh_t *fvp, FILE *dstf)
 {
+    size_t file_count_lines;
+    size_t file_count_runes;
+    size_t file_count_inval;
+    size_t line_count_runes;
+
     FILE *srcf;
     int c;
 
+    file_count_lines = 0;
+    file_count_runes = 0;
+    file_count_inval = 0;
+    line_count_runes = 0;
     srcf = fvp->fh;
     fvp->flnr = 0;
+
     while ((c = getc(srcf)) != EOF) {
         char *ascii;
 
         if (c <= 0x7F) {
-            putc(c, dstf);
+            if (c == '\n') {
+                if (line_count_runes != 0) {
+                    ++file_count_lines;
+                    file_count_runes += line_count_runes;
+                    line_count_runes = 0;
+                }
+                ++fvp->flnr;
+            }
+            fputc(c, dstf);
             continue;
         }
+
+        ++line_count_runes;
         ascii = latin1_devolve_chr(c);
         if (ascii != NULL) {
             fputs(ascii, dstf);
         }
         else {
             fput_hex(c, dstf);
+            ++file_count_inval;
         }
     }
 
-    return (0);
+    if (show_counts || (show_8bit && file_count_runes != 0)) {
+        fprintf(stderr, "%s:\n", fvp->fname);
+        fprintf(stderr, "%9zu 8-bit characters in entire file.\n",
+            file_count_runes);
+        fprintf(stderr, "%9zu lines containing any 8-bit characters.\n",
+            file_count_lines);
+        fprintf(stderr, "%9zu 8-bit characters that are not valid latin1.\n",
+            file_count_inval);
+    }
+
+    return ((file_count_inval == 0) ? 0 : 1);
 }
 
 static int
@@ -308,7 +504,7 @@ devolve_stream(fvh_t *fvp, FILE *dstf)
     switch (charset) {
     default:
         abort();
-        return (-1);
+        return (64);
     case CHARSET_UTF8:
         return (devolve_stream_utf8(fvp, dstf));
     case CHARSET_LATIN1:
@@ -340,7 +536,7 @@ devolve_filev(size_t filec, char **filev, FILE *dstf)
             break;
         }
         fv.fh = srcf;
-        devolve_stream(&fv, dstf);
+        rv = devolve_stream(&fv, dstf);
         fclose(srcf);
     }
 
@@ -399,8 +595,26 @@ main(int argc, char **argv)
         case 'v':
             verbose = true;
             break;
+        case 'c':
+            show_counts = true;
+            break;
+        case '8':
+            show_8bit = true;
+            break;
         case 'C':
-            charset = CHARSET_LATIN1;
+            if (variant_strcmp(optarg, "latin-1", VARIANT_WORDS) == 0) {
+                charset = CHARSET_LATIN1;
+            }
+            else if (variant_strcmp(optarg, "iso-8859-1", VARIANT_WORDS) == 0) {
+                charset = CHARSET_LATIN1;
+            }
+            else if (variant_strcmp(optarg, "utf-8", VARIANT_ACRONYM) == 0) {
+                charset = CHARSET_UTF8;
+            }
+            else {
+                eprintf("Unknown character set, '%s'\n", optarg);
+                ++err_count;
+            }
             break;
         case '?':
             eprint(program_name);
@@ -419,12 +633,13 @@ main(int argc, char **argv)
         default:
             eprintf("%s: INTERNAL ERROR: unknown option, '%c'\n",
                 program_name, optopt);
-            exit(2);
+            exit(64);
             break;
         }
     }
 
-    verbose = verbose || debug;
+    if (debug)   { verbose     = true; }
+    if (verbose) { show_counts = true; }
 
     if (optind < argc) {
         filec = (size_t) (argc - optind);
@@ -449,7 +664,7 @@ main(int argc, char **argv)
 
     if (err_count != 0) {
         usage();
-        exit(1);
+        exit(2);
     }
 
     if (filec) {

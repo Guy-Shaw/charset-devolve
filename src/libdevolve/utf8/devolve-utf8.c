@@ -37,6 +37,9 @@ extern bool debug;
 extern FILE *errprint_fh;
 extern FILE *dbgprint_fh;
 
+size_t count_lines;
+size_t count_runes;
+
 static Rune
 getRune(FILE *f)
 {
@@ -84,7 +87,11 @@ devolve_stream_utf8(fvh_t *fvp, FILE *dstf)
 {
     FILE *srcf;
     Rune r;
+    size_t count_runes_this_line;
 
+    count_lines = 0;
+    count_runes = 0;
+    count_runes_this_line = 0;
     srcf = fvp->fh;
     fvp->flnr = 0;
     while ((r = getRune(srcf)) != (Rune) EOF) {
@@ -92,6 +99,11 @@ devolve_stream_utf8(fvh_t *fvp, FILE *dstf)
 
         if (r <= 0x7F) {
             if (r == '\n') {
+                if (count_runes_this_line != 0) {
+                    count_runes += count_runes_this_line;
+                    ++count_lines;
+                    count_runes_this_line = 0;
+                }
                 ++fvp->flnr;
             }
             fputc(r, dstf);
@@ -103,6 +115,7 @@ devolve_stream_utf8(fvh_t *fvp, FILE *dstf)
         }
         else {
             fputRune(r, dstf);
+            ++count_runes_this_line;
         }
     }
 
