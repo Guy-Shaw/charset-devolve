@@ -42,6 +42,18 @@ extern FILE *dbgprint_fh;
 size_t count_lines;
 size_t count_runes;
 
+/*
+ * Get a full UTF8 rune.
+ * A single byte might already have been read.
+ * So, we supply the value of the first byte, if any,
+ * here, rather than doing ungetc(),
+ * or some other character peeking / backtracking mechanism.
+ *
+ * Keep reading one character at a time,
+ * until we get a full rune or an error.
+ *
+ */
+
 static Rune
 getRune(FILE *f, int c1)
 {
@@ -71,6 +83,12 @@ getRune(FILE *f, int c1)
     }
     return (Runeerror);
 }
+
+/*
+ * If a rune was not ASCII, and could not be devolved to ASCII,
+ * then we emit a representatrion of the non-translated rune,
+ * or the offending non-utf8 sequence of bytes.
+ */
 
 static void
 fputRune(Rune r, FILE *f)
