@@ -18,18 +18,21 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+GENDIR := ../../gen-tables/utf8
 SOURCES := $(wildcard *.c)
 OBJECTS := $(patsubst %.c, %.o, $(SOURCES))
 
 CC := gcc
 CONFIG := -DDEBUG
 CPPFLAGS := -I../../inc  -I.
-CFLAGS += -std=c99 -g -Wall -Wextra $(CONFIG)
+CFLAGS := -std=c99 -g -Wall -Wextra $(CONFIG) $(CPPFLAGS)
 
 .PHONY: all clean show-targets
 
 all: $(OBJECTS)
 
+rune-table.c: $(GENDIR)/$@
+	cp -p $(GENDIR)/$@ $@
 
 clean:
 	rm -f *.o

@@ -25,13 +25,13 @@ SUBLIBS := utf8 latin1
 
 all: $(LIBRARY).a
 
-$(LIBRARY).a: utf8/*.o latin1/*.o
+$(LIBRARY).a:
 	for dir in $(SUBLIBS) ; do ( cd $$dir && make ) ; done
 	ar crv $(LIBRARY).a  utf8/*.o latin1/*.o
 
 clean:
-	rm -f $(LIBRARY).a *.o
-	cscope-clean
+	rm -f $(LIBRARY).a
+	for dir in $(SUBLIBS) ; do ( cd $$dir && make clean) ; done
 
 show-targets:
 	@show-makefile-targets

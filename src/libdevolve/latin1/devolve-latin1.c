@@ -1,5 +1,5 @@
 /*
- * Filename: src/libdevolve/devolve-latin1.c
+ * Filename: src/libdevolve/latin1/devolve-latin1.c
  * Project: charset-devolve
  * Brief: Devolve Latin1 8-bit character set down to 7-bit ASCII
  *
@@ -23,6 +23,8 @@
 #define IMPORT_FVH
 #include <cscript.h>
 
+#include <devolve.h>
+
 extern char *program_path;
 extern char *program_name;
 
@@ -40,7 +42,7 @@ fput_hex(int c, FILE *dstf)
 
 #define latin1_table_base 0xa0
 
-char *
+static char *
 latin1_devolve_chr(int c)
 {
     extern char latin1_table[];
@@ -65,29 +67,61 @@ latin1_devolve_chr(int c)
     }
 }
 
+
 int
-devolve_stream_latin1(fvh_t *fvp, FILE *dstf)
+devolve_stream_latin1(fvh_t *fvp, FILE *dstf, unsigned int opt)
 {
+    size_t file_count_lines;
+    size_t file_count_runes;
+    size_t file_count_inval;
+    size_t line_count_runes;
+
     FILE *srcf;
     int c;
 
+    file_count_lines = 0;
+    file_count_runes = 0;
+    file_count_inval = 0;
+    line_count_runes = 0;
     srcf = fvp->fh;
     fvp->flnr = 0;
+
     while ((c = getc(srcf)) != EOF) {
         char *ascii;
 
         if (c <= 0x7F) {
-            putc(c, dstf);
+            if (c == '\n') {
+                if (line_count_runes != 0) {
+                    ++file_count_lines;
+                    file_count_runes += line_count_runes;
+                    line_count_runes = 0;
+                }
+                ++fvp->flnr;
+            }
+            fputc(c, dstf);
             continue;
         }
+
+        ++line_count_runes;
         ascii = latin1_devolve_chr(c);
         if (ascii != NULL) {
             fputs(ascii, dstf);
         }
         else {
             fput_hex(c, dstf);
+            ++file_count_inval;
         }
     }
 
-    return (0);
+    if (opt & OPT_SHOW_COUNTS || (opt & OPT_SHOW_8BIT && file_count_runes != 0)) {
+        fprintf(stderr, "%s:\n", fvp->fname);
+        fprintf(stderr, "%9zu 8-bit characters in entire file.\n",
+            file_count_runes);
+        fprintf(stderr, "%9zu lines containing any 8-bit characters.\n",
+            file_count_lines);
+        fprintf(stderr, "%9zu 8-bit characters that are not valid latin1.\n",
+            file_count_inval);
+    }
+
+    return ((file_count_inval == 0) ? 0 : 1);
 }

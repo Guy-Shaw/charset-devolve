@@ -12,7 +12,7 @@ rune => devolved
 where rune is a perl string with possible escape sequences.
 The string is evaluated as if it were a perl statement $var = qq{rune},
 so escape sequence get evaluated.  The 'devolved' string is the expected
-result of running u2a (utf8-to-ascii) on that string.
+result of running @command{charset-devolve --charset=utf8} on that string.
 
 =end description
 

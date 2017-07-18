@@ -1,0 +1,41 @@
+#! /bin/bash
+#
+# Date: 2017-01-07
+# Subject: Test counts
+# Subject: Test exit status
+
+run_test()
+{
+    script="$1"
+    expect="$2"
+    perl -e "${script}" | ../charset-devolve --charset=utf8 > tmp-result
+    rc=$?
+    ((++ntests))
+    if ((rc != expect))
+    then
+        echo "Expected exit status==${expect} -- got ${rc}."
+        echo "script=[${script}]"
+        echo "result:"
+        sed -e 's/^/  /' tmp-result
+        ((++err))
+    fi
+}
+
+ntests=0
+err=0
+
+run_test 'print "Test [\x90]\nLine 2: [\xC2\xA9]\n";'  1
+run_test 'print "Test []\nLine 2: [\xC2\xA9]\n";'      0
+
+if ((err))
+then
+    echo "Tests run: ${ntests}"
+    echo "Errors:    ${err}"
+fi
+
+perl -e 'print "Test [\x90]\nLine 2: [\xC2\xA9]\n";' \
+| ../charset-devolve --show-counts
+
+perl -e 'print "Test []\nLine 2: [\xC2\xA9]\n";' \
+| ../charset-devolve --show-counts
+
