@@ -100,7 +100,7 @@ static const char usage_text[] =
     "  --version       Show version information and exit\n"
     "  --debug|-d      debug\n"
     "  --verbose|-v    verbose\n"
-    "  --soft-hyphen   Show soft hyphen as hyphen\n"
+    "  --soft-hyphens  Show soft hyphen as hyphen\n"
     "                  defualt is strip soft hyphens\n"
     "  --show-counts   After each file, show counts of devolved characters\n"
     "  --counts\n"
