@@ -52,7 +52,7 @@ number of lines containing errors, 8-bit characters, UTF8 runes.
 --count-8bit
 
 Like option, `--show-counts`, except that it only shows counts
-it there are any bytes with the hight bit turned on.
+if there are any bytes with the hight bit turned on.
 Nothing would be reported if the input were pure 7-bit ASCII.
 
 ## Exit Status
