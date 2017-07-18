@@ -120,7 +120,7 @@ static const char version_text[] =
     ;
 
 static const char copyright_text[] =
-    "Copyright (C) 2016 Guy Shaw\n"
+    "Copyright (C) 2016-2017 Guy Shaw\n"
     "Written by Guy Shaw\n"
     ;
 
