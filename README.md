@@ -30,7 +30,11 @@ Pretty-print values of interest only for debugging.
 
 Show some feedback while running.
 
---latin1
+--charset=utf8
+
+The input character set is UTF-8.
+
+--charset=latin1
 
 The input character set is ISO/IEC 8859-1, AKA Latin1.
 
@@ -38,6 +42,27 @@ The default is UTF-8.
 
 For other character sets, you can use `recode`
 to convert to UTF-8 or to Latin1, then run `charset-devolve`.
+
+--show-counts
+
+At the end, show counts of errors, bytes that are invalid UTF-8,
+bytes with high bit set (whether UTF-8 or not), number of UTF-8 runes,
+number of lines containing errors, 8-bit characters, UTF8 runes.
+
+--count-8bit
+
+Like option, `--show-counts`, except that it only shows counts
+it there are any bytes with the hight bit turned on.
+Nothing would be reported if the input were pure 7-bit ASCII.
+
+## Exit Status
+
+If there were no invalid UTF-8 runes in the input,
+then `charset-devolve` returns exit status = 0.
+If there, were any bytes that are not valid UTF-8,
+then exit status is 1.  More serious errors,
+such as failure to open a file, cause exit status 2, or greater.
+
 
 ## Why
 
@@ -52,11 +77,33 @@ from various sources, with various encodings.  None of these
 sources involve any serious use of richer character sets.
 They are almost all English language.  Many UTF-8 encoded
 documents I encounter just have an occasional M-dash, or "real"
-left and right quote marks, an apostrophe -- that's it.
+left and right quote marks, an apostrophe,
+a Copyright or Trademark symbol -- that's it.
+
 No foreign language, except maybe an occasional borrowed
 word, like "facade" with a real cedilla.
 
 No need for Unicode, here.  Not really.
+
+## Other Uses
+
+Because `charset-devolve` can tell if there are _any_
+bytes that are not valid UTF-8, and can return a reliable
+exit status, I have found that is a more reliable test
+(of UTF8 or not-UTF8) than some of the programs
+that try to guess the character encoding of a given file.
+
+Where I used to try a three-step process:
+
+  1. get encoding from metadata;
+  2. failing that, guess encoding;
+  3. convert to UTF8, if not already UTF8.
+
+Now, I run `charset-devolve --charset=utf8`.
+Most of the time (in my experience, your mileage may vary),
+it works.  But, if it reports that the file contains some
+non-UTF8 content, then, fall back on the programs that guess
+character set.
 
 ## License
 
