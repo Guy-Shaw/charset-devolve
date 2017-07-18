@@ -55,6 +55,14 @@ Like option, `--show-counts`, except that it only shows counts
 if there are any bytes with the hight bit turned on.
 Nothing would be reported if the input were pure 7-bit ASCII.
 
+--soft-hyphens
+
+Normally, Unicode SOFT HYPHEN (U+00AD) is supressed.
+But, there are times when you might want to see them.
+If the option, '--soft-hyphens' is specified,
+then soft hyphens get devolved into ASCII dash/minus/hyphen,
+0x2D.  This option applies only to --charset=utf8.
+
 ## Exit Status
 
 If there were no invalid UTF-8 runes in the input,
