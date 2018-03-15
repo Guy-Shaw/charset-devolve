@@ -93,8 +93,9 @@ struct fvh {
     char *fname;
     char *line;
     char *endl;
-    uint_t glnr;
-    uint_t flnr;
+    size_t glnr;
+    size_t flnr;
+    size_t col;
     int eof;
 };
 

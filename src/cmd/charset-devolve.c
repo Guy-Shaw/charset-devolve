@@ -91,6 +91,8 @@ static struct option long_options[] = {
     {"count-8bit",     no_argument,       0,  '8'},
     {"charset",        required_argument, 0,  'C'},
     {"soft-hyphens",   no_argument,       0,  'H'},
+    {"trace-errors",   no_argument,       0,  'e'},
+    {"trace-conv",     no_argument,       0,  't'},
     {0, 0, 0, 0}
 };
 
@@ -100,15 +102,17 @@ static const char usage_text[] =
     "  --version       Show version information and exit\n"
     "  --debug|-d      debug\n"
     "  --verbose|-v    verbose\n"
+    "  --charset <charset>\n"
+    "                  Specify a the source character set (encoding)\n"
+    "                  Character sets are: UTF-8 latin1\n"
+    "                  Default is UTF-8\n"
     "  --soft-hyphens  Show soft hyphen as hyphen\n"
     "                  defualt is strip soft hyphens\n"
     "  --show-counts   After each file, show counts of devolved characters\n"
     "  --counts\n"
     "  --count-8bit    Show counts, but only if there are any non-ascii\n"
-    "  --charset <charset>\n"
-    "                  Specify a the source character set (encoding)\n"
-    "                  Character sets are: UTF-8 latin1\n"
-    "                  Default is UTF-8\n"
+    "  --trace-conv    Trace conversions on stderr as they happen\n"
+    "  --trace-errors  Trace invalid UTF-8 byte sequences on stderr\n"
     "\n"
     "Only UTF-8 and latin1 are directly supported, for now.\n"
     "Other character sets could be handled by using recode\n"
@@ -120,7 +124,7 @@ static const char version_text[] =
     ;
 
 static const char copyright_text[] =
-    "Copyright (C) 2016-2017 Guy Shaw\n"
+    "Copyright (C) 2016-2018 Guy Shaw\n"
     "Written by Guy Shaw\n"
     ;
 
@@ -369,6 +373,12 @@ main(int argc, char **argv)
                 eprintf("Unknown character set, '%s'\n", optarg);
                 ++err_count;
             }
+            break;
+        case 't':
+            devolve_options |= (unsigned int)OPT_TRACE_CONV;
+            break;
+        case 'e':
+            devolve_options |= (unsigned int)OPT_TRACE_ERRORS;
             break;
         case '?':
             eprint(program_name);

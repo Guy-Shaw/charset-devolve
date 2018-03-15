@@ -18,23 +18,23 @@ of characters used in these richer character sets.
 
 ## Options and commands
 
---help
+`--help`
 
---version
+`--version`
 
---debug
+`--debug`
 
 Pretty-print values of interest only for debugging.
 
---verbose
+`--verbose`
 
 Show some feedback while running.
 
---charset=utf8
+`--charset=utf8`
 
 The input character set is UTF-8.
 
---charset=latin1
+`--charset=latin1`
 
 The input character set is ISO/IEC 8859-1, AKA Latin1.
 
@@ -43,25 +43,38 @@ The default is UTF-8.
 For other character sets, you can use `recode`
 to convert to UTF-8 or to Latin1, then run `charset-devolve`.
 
---show-counts
+`--show-counts`
 
 At the end, show counts of errors, bytes that are invalid UTF-8,
 bytes with high bit set (whether UTF-8 or not), number of UTF-8 runes,
 number of lines containing errors, 8-bit characters, UTF8 runes.
 
---count-8bit
+`--count-8bit`
 
 Like option, `--show-counts`, except that it only shows counts
 if there are any bytes with the hight bit turned on.
 Nothing would be reported if the input were pure 7-bit ASCII.
 
---soft-hyphens
+`--soft-hyphens`
 
 Normally, Unicode SOFT HYPHEN (U+00AD) is supressed.
 But, there are times when you might want to see them.
 If the option, '--soft-hyphens' is specified,
 then soft hyphens get devolved into ASCII dash/minus/hyphen,
 0x2D.  This option applies only to --charset=utf8.
+
+`--trace-conv`
+
+Trace conversions on stderr as they happen.
+
+If there are many conversions, then the trace can be pretty
+noisy, but often there are only a few actual modifications
+even in a large text file.  In that case, it can be useful
+to see the report of just the characters that have been modified.
+
+`--trace-errors`
+
+Trace invalid UTF-8 byte sequences on stderr.
 
 ## Exit Status
 

@@ -55,6 +55,9 @@ latin1_devolve_chr(int c)
     if (c > 0xff) {
         return (NULL);
     }
+    else if (c >= 0x80 && c < 0xa0) {
+        return (NULL);
+    }
     idx = (c & 0xff) - latin1_table_base;
     bytecode = latin1_table[idx] & 0xff;
     if (bytecode <= 0x7f) {
@@ -75,6 +78,7 @@ devolve_stream_latin1(fvh_t *fvp, FILE *dstf, unsigned int opt)
     size_t file_count_runes;
     size_t file_count_inval;
     size_t line_count_runes;
+    size_t col;
 
     FILE *srcf;
     int c;
@@ -86,6 +90,7 @@ devolve_stream_latin1(fvh_t *fvp, FILE *dstf, unsigned int opt)
     srcf = fvp->fh;
     fvp->flnr = 0;
 
+    col = 0;
     while ((c = getc(srcf)) != EOF) {
         char *ascii;
 
@@ -97,6 +102,7 @@ devolve_stream_latin1(fvh_t *fvp, FILE *dstf, unsigned int opt)
                     line_count_runes = 0;
                 }
                 ++fvp->flnr;
+                col = 0;
             }
             fputc(c, dstf);
             continue;
@@ -106,11 +112,20 @@ devolve_stream_latin1(fvh_t *fvp, FILE *dstf, unsigned int opt)
         ascii = latin1_devolve_chr(c);
         if (ascii != NULL) {
             fputs(ascii, dstf);
+            if (opt & OPT_TRACE_CONV) {
+                fprintf(stderr, "    line #%zu, col #%zu, 0x%02x -> '%s'\n",
+                        fvp->flnr, col, c, ascii);
+            }
         }
         else {
             fput_hex(c, dstf);
+            if (opt & OPT_TRACE_ERRORS) {
+                fprintf(stderr, "    line #%zu, col #%zu, 0x%02x -> *ERROR*\n",
+                        fvp->flnr, col, c);
+            }
             ++file_count_inval;
         }
+        ++col;
     }
 
     if (opt & OPT_SHOW_COUNTS || (opt & OPT_SHOW_8BIT && file_count_runes != 0)) {

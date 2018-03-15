@@ -2439,6 +2439,17 @@ FB04;ffl;LATIN SMALL LIGATURE FFL;Ll;0;L;<compat> 0066 0066 006C;;;;N;;;;;
 FB05;ft;LATIN SMALL LIGATURE LONG S T;Ll;0;L;<compat> 017F 0074;;;;N;;;;;
 FB06;ft;LATIN SMALL LIGATURE ST;Ll;0;L;<compat> 0073 0074;;;;N;;;;;
 
+F730;0;;;;;;;;;;;;;;
+F731;1;;;;;;;;;;;;;;
+F732;2;;;;;;;;;;;;;;
+F733;3;;;;;;;;;;;;;;
+F734;4;;;;;;;;;;;;;;
+F735;5;;;;;;;;;;;;;;
+F736;6;;;;;;;;;;;;;;
+F737;7;;;;;;;;;;;;;;
+F738;8;;;;;;;;;;;;;;
+F739;9;;;;;;;;;;;;;;
+
 __END__
 
 23AE;?;INTEGRAL EXTENSION;Sm;0;ON;;;;;N;;;;;
