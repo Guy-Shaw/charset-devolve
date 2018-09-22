@@ -44,6 +44,24 @@ size_t count_lines;
 size_t count_runes;
 
 /*
+ * A quick test whether a character is a legal starting byte for
+ * a UTF8 rune.  This test is used, instead of calling getRune(),
+ * not for the sake of speed, but so that we can do our own recovery
+ * from this type of error, instead of letting getRune() consume
+ * some unknown number of bytes.
+ */
+
+static bool
+is_valid_rune_first_byte(int chr)
+{
+    if (chr > 0xFF) {
+        return (false);
+    }
+
+    return (! (chr >= 0x80 && chr <= 0xC1) || (chr >= 0xF5 && chr <= 0xFF));
+}
+
+/*
  * Get a full UTF8 rune.
  * A single byte might already have been read.
  * So, we supply the value of the first byte, if any,
@@ -53,15 +71,24 @@ size_t count_runes;
  * Keep reading one character at a time,
  * until we get a full rune or an error.
  *
+ * Also, keep track of the length in bytes of the Rune,
+ * and of how many 8-bits bytes it contains.
+ *
+ * The length and the count of 8-bit bytes includes
+ * the first character, |c1|, if any.
+ *
  */
 
 static Rune
-getRune(FILE *f, int c1, size_t *col)
+getRune(FILE *f, int c1, size_t *col, size_t *rlen, size_t *r_cnt_8bit)
 {
     Rune r;
     int c;
     char char_buf[UTFmax + 1];
+    Rune rval;
     size_t i;
+    size_t j;
+    size_t cnt_8bit;
 
     i = 0;
     if (c1 != 0) {
@@ -73,17 +100,29 @@ getRune(FILE *f, int c1, size_t *col)
         c = getc(f);
         ++(*col);
         if (c == EOF) {
-            return ((Rune)EOF);
+            rval = (Rune)EOF;
+            break;
         }
         char_buf[i] = c;
         ++i;
         if (fullrune(char_buf, i)) {
             char_buf[i] = '\0';
             chartorune(&r, char_buf);
-            return (r);
+            rval = r;
+            break;
         }
     }
-    return (Runeerror);
+
+    *rlen = i;
+    cnt_8bit = 0;
+    for (j = 0; j <= i && char_buf[j] != 0; ++j) {
+        if ((char_buf[j] & 0xFF) >= 0x80) {
+            ++cnt_8bit;
+        }
+    }
+    *r_cnt_8bit = cnt_8bit;
+
+    return (rval);
 }
 
 /*
@@ -126,31 +165,51 @@ rune_to_hex(Rune r)
 }
 
 /*
+ * Handle the case that we read a byte that is not ASCII (>= 0x80),
+ * but is not a valid character to begin a UTF8 rune.
+ */
+
+static void
+fputBadcharRepr(int c, FILE *f, size_t lnr, size_t col, unsigned int opt)
+{
+    char dcode[32];
+
+    sprintf(dcode, "*BAD:%02x*", c);
+    fputs(dcode, f);
+
+    if ((opt & OPT_TRACE_ERRORS) !=  0) {
+        fprintf(stderr, "Invalid rune @ line #%zu, col #%zu, %s\n", lnr, col, dcode);
+    }
+}
+
+/*
  * If a rune was not ASCII, and could not be devolved to ASCII,
  * then we emit a representatrion of the non-translated rune,
  * or the offending non-utf8 sequence of bytes.
  *
- * The current source lines number and column are used solely
+ * The current source line number and column are used solely
  * for the purpose of trace messages.
+ *
+ * If a byte is read which is not 7-bit ASCII but not valid as the
+ * first byte of a UTF8 rune, that case is detected and handled
+ * _before_ calling getRUne() and so _before_ we would do any processing
+ * on an actual UTF8 rune.
  */
 
 static void
-fputBadRune(Rune r, FILE *f, size_t lnr, size_t col, unsigned int opt)
+fputRuneRepr(Rune r, FILE *f, size_t lnr, size_t col, unsigned int opt)
 {
-    char dcode_bad[32];
+    char dcode_rune[32];
     char *dp;
+    bool is_bad = false;
 
-    dp = dcode_bad;
+    dp = dcode_rune;
     *dp++ = '*';
 
     if (r == Runeerror) {
-        strcpy(dp, "BAD");
-        dp += 3;
-    }
-    else if ((r >= 0x80 && r <= 0xC1) || (r >= 0xF5 && r <= 0xFF)) {
-        // This is not valid for the first byte of a UTF-8 rune
-        sprintf(dp, "%02x", r);
-        dp += 2;
+        strcpy(dp, "BAD:");
+        dp += 4;
+        is_bad = true;
     }
     else {
         // The first byte is valid, but for some reason the entire
@@ -159,7 +218,7 @@ fputBadRune(Rune r, FILE *f, size_t lnr, size_t col, unsigned int opt)
 
         size_t rlen;
 
-        rlen = (char *) &dcode_bad + sizeof (dcode_bad) - dp - 1;
+        rlen = (char *) &dcode_rune + sizeof (dcode_rune) - dp - 1;
         rune_to_hex_r(dp, rlen, r);
         while (*dp) {
             ++dp;
@@ -167,9 +226,16 @@ fputBadRune(Rune r, FILE *f, size_t lnr, size_t col, unsigned int opt)
     }
     *dp++ = '*';
     *dp = '\0';
-    fputs(dcode_bad, f);
-    if (opt & OPT_TRACE_ERRORS) {
-        fprintf(stderr, " line #%zu, col #%zu, %s\n", lnr, col, dcode_bad);
+    fputs(dcode_rune, f);
+    if (is_bad) {
+        if ((opt & OPT_TRACE_ERRORS) !=  0) {
+            fprintf(stderr, "Invalid rune @ line #%zu, col #%zu, %s\n", lnr, col, dcode_rune);
+        }
+    }
+    else {
+        if ((opt & OPT_TRACE_UNTRANS) != 0) {
+            fprintf(stderr, "Untrans rune @ line #%zu, col #%zu, %s\n", lnr, col, dcode_rune);
+        }
     }
 }
 
@@ -196,26 +262,33 @@ devolve_stream_utf8(fvh_t *fvp, FILE *dstf, unsigned int opt)
 {
     size_t cnt_8bit;
     size_t cnt_runes;
+    size_t cnt_untrans;
     size_t cnt_inval;
     size_t cnt_lines;
     size_t cnt_lines_with_8bit;
     size_t cnt_lines_with_runes;
     size_t cnt_lines_with_inval;
+    size_t cnt_lines_with_untrans;
     size_t cnt_runes_this_line;
+    size_t cnt_untrans_this_line;
     size_t cnt_inval_this_line;
     size_t col;
 
     FILE *srcf;
     int c;
 
+    cnt_8bit = 0;
     cnt_runes = 0;
     cnt_inval = 0;
+    cnt_untrans = 0;
     cnt_lines = 0;
     cnt_lines_with_8bit = 0;
     cnt_lines_with_runes = 0;
     cnt_lines_with_inval = 0;
+    cnt_lines_with_untrans = 0;
     cnt_runes_this_line = 0;
     cnt_inval_this_line = 0;
+    cnt_untrans_this_line = 0;
 
     srcf = fvp->fh;
     fvp->flnr = 0;
@@ -226,17 +299,22 @@ devolve_stream_utf8(fvh_t *fvp, FILE *dstf, unsigned int opt)
             ++cnt_lines;
             cnt_runes += cnt_runes_this_line;
             cnt_inval += cnt_inval_this_line;
+            cnt_untrans += cnt_untrans_this_line;
             if (cnt_runes_this_line != 0) {
                 ++cnt_lines_with_runes;
             }
-            if (cnt_inval_this_line!= 0) {
+            if (cnt_inval_this_line != 0) {
                 ++cnt_lines_with_inval;
             }
-            if (cnt_runes_this_line != 0 || cnt_inval_this_line != 0) {
+            if (cnt_untrans_this_line != 0) {
+                ++cnt_lines_with_untrans;
+            }
+            if (cnt_runes_this_line != 0 || cnt_inval_this_line != 0 || cnt_untrans_this_line != 0) {
                 ++cnt_lines_with_8bit;
             }
             cnt_runes_this_line = 0;
             cnt_inval_this_line = 0;
+            cnt_untrans_this_line = 0;
             ++fvp->flnr;
             col = 0;
         }
@@ -245,43 +323,59 @@ devolve_stream_utf8(fvh_t *fvp, FILE *dstf, unsigned int opt)
             break;
         }
 
+        c = c & 0xFF;
         if (c <= 0x7F) {
             fputc(c, dstf);
         }
-        else if (c <= 0xC0) {
-            Rune r;
-            r = (Rune)c;
-            fputBadRune(r, dstf, fvp->flnr, col, opt);
+        else if (!is_valid_rune_first_byte(c)) {
+            // Handle this case of invalid rune,
+            // before even calling getRune().
+            fputBadcharRepr(c, dstf, cnt_lines + 1, col, opt);
             ++cnt_inval_this_line;
+            ++cnt_8bit;
         }
         else {
             char *ascii;
             Rune r;
+            bool valid_rune;
+            size_t rune_len;
+            size_t rune_cnt_8bit;
 
-            r = getRune(srcf, c, &col);
-            if (opt & OPT_SOFT_HYPHENS && r == 0x00AD) {
+            ascii = NULL;
+            r = getRune(srcf, c, &col, &rune_len, &rune_cnt_8bit);
+            cnt_8bit += rune_cnt_8bit;
+            valid_rune = (r != Runeerror);
+            if (!valid_rune) {
+                // skip
+            }
+            else if (opt & OPT_SOFT_HYPHENS && r == 0x00AD) {
                 ascii = "-";
             }
             else {
                 ascii = rune_lookup(r);
             }
+
             if (ascii != NULL) {
                 fputs(ascii, dstf);
                 if (opt & OPT_TRACE_CONV) {
-                    fprintf(stderr, "    line #%zu, col #%zu, %s -> '%s'\n",
-                            fvp->flnr, col, rune_to_hex(r), ascii);
+                    fprintf(stderr, "    Conversion @ line #%zu, col #%zu, %s -> '%s'\n",
+                            cnt_lines + 1, col, rune_to_hex(r), ascii);
                 }
                 ++cnt_runes_this_line;
             }
+            else if (valid_rune) {
+                fputRuneRepr(r, dstf, cnt_lines + 1, col, opt);
+                ++cnt_untrans_this_line;
+            }
             else {
-                fputBadRune(r, dstf, fvp->flnr, col, opt);
+                fputRuneRepr(r, dstf, cnt_lines + 1, col, opt);
                 ++cnt_inval_this_line;
             }
         }
         ++col;
     }
 
-    cnt_8bit = cnt_runes + cnt_inval;
+    // XXX cnt_8bit = cnt_runes + cnt_inval;
     if (opt & OPT_SHOW_COUNTS || (opt & OPT_SHOW_8BIT && cnt_8bit != 0)) {
         fprintf(stderr, "File: '%s':\n", fvp->fname);
         fprintf(stderr, "%9zu lines in file.\n",
@@ -292,12 +386,16 @@ devolve_stream_utf8(fvh_t *fvp, FILE *dstf, unsigned int opt)
             cnt_runes);
         fprintf(stderr, "%9zu Invalid runes in entire file.\n",
             cnt_inval);
+        fprintf(stderr, "%9zu Untrans runes in entire file.\n",
+            cnt_untrans);
         fprintf(stderr, "%9zu lines containing any non-ascii bytes.\n",
             cnt_lines_with_8bit);
         fprintf(stderr, "%9zu lines containing any UTF-8 runes.\n",
             cnt_lines_with_runes);
         fprintf(stderr, "%9zu lines containing any invalid runes.\n",
             cnt_lines_with_inval);
+        fprintf(stderr, "%9zu lines containing any untrans runes.\n",
+            cnt_lines_with_untrans);
     }
 
     return ((cnt_inval == 0) ? 0 : 1);
