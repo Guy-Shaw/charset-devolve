@@ -92,6 +92,7 @@ static struct option long_options[] = {
     {"charset",        required_argument, 0,  'C'},
     {"soft-hyphens",   no_argument,       0,  'H'},
     {"trace-errors",   no_argument,       0,  'e'},
+    {"trace-untrans",  no_argument,       0,  'u'},
     {"trace-conv",     no_argument,       0,  't'},
     {0, 0, 0, 0}
 };
@@ -113,6 +114,7 @@ static const char usage_text[] =
     "  --count-8bit    Show counts, but only if there are any non-ascii\n"
     "  --trace-conv    Trace conversions on stderr as they happen\n"
     "  --trace-errors  Trace invalid UTF-8 byte sequences on stderr\n"
+    "  --trace-untrans Trace valid but untranslated runes on stderr\n"
     "\n"
     "Only UTF-8 and latin1 are directly supported, for now.\n"
     "Other character sets could be handled by using recode\n"
@@ -379,6 +381,9 @@ main(int argc, char **argv)
             break;
         case 'e':
             devolve_options |= (unsigned int)OPT_TRACE_ERRORS;
+            break;
+        case 'u':
+            devolve_options |= (unsigned int)OPT_TRACE_UNTRANS;
             break;
         case '?':
             eprint(program_name);
