@@ -46,20 +46,22 @@ enum cset {
  */
 
 enum devolve_option {
-    OPT_SOFT_HYPHENS = 0x01,
-    OPT_SHOW_COUNTS  = 0x02,
-    OPT_SHOW_8BIT    = 0x04,
-    OPT_TRACE_CONV   = 0x08,
-    OPT_TRACE_ERRORS = 0x10,
+    OPT_SOFT_HYPHENS  = 0x01,
+    OPT_SHOW_COUNTS   = 0x02,
+    OPT_SHOW_8BIT     = 0x04,
+    OPT_TRACE_CONV    = 0x08,
+    OPT_TRACE_ERRORS  = 0x10,
+    OPT_TRACE_UNTRANS = 0x20,
 };
 
 #if 0
 
-#define OPT_SOFT_HYPHENS 0x01
-#define OPT_SHOW_COUNTS  0x02
-#define OPT_SHOW_8BIT    0x04
-#define OPT_TRACE_CONV   0x08
-#define OPT_TRACE_ERRORS 0x10
+#define OPT_SOFT_HYPHENS  0x01
+#define OPT_SHOW_COUNTS   0x02
+#define OPT_SHOW_8BIT     0x04
+#define OPT_TRACE_CONV    0x08
+#define OPT_TRACE_ERRORS  0x10
+#define OPT_TRACE_UNTRANS 0x10
 
 #endif
 
