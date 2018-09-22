@@ -76,6 +76,13 @@ to see the report of just the characters that have been modified.
 
 Trace invalid UTF-8 byte sequences on stderr.
 
+`--trace-untrans`
+
+Trace Non-ASCII UTF-8 runes that are valid,
+but have no translation (cannot be devolved).
+Trace on stderr.
+
+
 ## Exit Status
 
 If there were no invalid UTF-8 runes in the input,
