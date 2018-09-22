@@ -45,7 +45,7 @@ clean-test:
 	cd test && make clean
 
 clean: clean-test
-	rm -f $(PROGRAM) core a.out mmv *.o *.a
+	rm -f $(PROGRAM) core a.out *.o *.a
 	rm -f test_?? T.??
 	rm -f *,FAILED
 
