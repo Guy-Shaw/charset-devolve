@@ -5,7 +5,7 @@
 # Filename: src/gen-tables/utf8/build-table
 # Brief: Build the C source code for the UTF8 devolve table
 #
-# Copyright (C) 2016 Guy Shaw
+# Copyright (C) 2016-2019 Guy Shaw
 # Written by Guy Shaw <gshaw@acm.org>
 #
 # This program is free software; you can redistribute it and/or modify
@@ -175,7 +175,7 @@ for (my $sx = $lbound & ~127; $sx <= $ubound; $sx += 128) {
 
     next if ($slbound < 0 && $subound < 0);
 
-    my $sid = sprintf('tr%04x', $slbound & ~127);
+    my $sid = sprintf('tr%05x', $slbound & ~127);
     push(@tr_segments, "static char *${sid}[] = {");
     for (my $idx = $slbound; $idx <= $subound; ++$idx) {
         my $ent = $table[$idx];
@@ -192,7 +192,7 @@ for (my $sx = $lbound & ~127; $sx <= $ubound; $sx += 128) {
     push(@tr_segments, '');
 
     my $sz = $subound + 1 - $slbound;
-    push(@hd_segments, sprintf('{ 0x%04x, %3u, %s },', $slbound, $sz, $sid));
+    push(@hd_segments, sprintf('{ 0x%05x, %3u, %s },', $slbound, $sz, $sid));
 }
 
 my $ent;

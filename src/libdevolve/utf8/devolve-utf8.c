@@ -125,6 +125,15 @@ getRune(FILE *f, int c1, size_t *col, size_t *rlen, size_t *r_cnt_8bit)
     return (rval);
 }
 
+static inline size_t
+int_to_size(int issize)
+{
+    if (issize < 0) {
+        abort();
+    }
+    return ((size_t) issize);
+}
+
 /*
  * Decode a UTF-8 Rune as hexadecimal reresentation.
  *   1) as U+%04x and also,
@@ -137,13 +146,16 @@ rune_to_hex_r(char *dst, size_t sz, Rune r)
     char *dp;
     size_t rsz;
     size_t i;
+    size_t fmt_sz;
+    int    fmt_rv;
 
     dp = dst;
-    if (dst + sz - dp < 7) {
+    if (dst + sz - dp < 8) {
         abort();
     }
-    sprintf(dp, "U+%04x=", r);
-    dp += 7;
+    fmt_rv = sprintf(dp, "U+%04x=", r);
+    fmt_sz = int_to_size(fmt_rv);
+    dp += fmt_sz;
 
     rsz = runetochar(char_buf, &r);
     for (i = 0; i < rsz; ++i) {
